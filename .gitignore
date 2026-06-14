@@ -1,3 +1,11 @@
+# data files
+notebooks/EMIP-Toolkit
+notebooks/data
+notebooks/simplegazetracker_dummy.csv
+
+# documents
+*.pdf
+
 # PyCharm
 .idea/
 
