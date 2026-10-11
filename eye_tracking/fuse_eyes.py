@@ -36,9 +36,9 @@ def fuse_raw_data(df: pl.DataFrame, protocol=EyeFusionProtocol.Any) -> pl.DataFr
     return df.filter(valid).select(
         [
             Column.Timestamp,
-            _fuse(Column.LeftX, Column.RightX, Column.EyeX, x_offset),
-            _fuse(Column.LeftY, Column.RightY, Column.EyeY, y_offset),
-            _fuse(Column.LeftDiameter, Column.RightDiameter, Column.Diameter),
+            _fuse(Column.LeftX, Column.RightX, offset=x_offset).alias(Column.EyeX),
+            _fuse(Column.LeftY, Column.RightY, offset=y_offset).alias(Column.EyeY),
+            _fuse(Column.LeftDiameter, Column.RightDiameter).alias(Column.Diameter),
         ]
     )
 
@@ -54,9 +54,7 @@ def _eye_valid(x_column: str, y_column: str, diameter_column: str) -> pl.Expr:
     )
 
 
-def _fuse(
-    left_column: str, right_column: str, target_column: str, offset: float = 0.0
-) -> pl.Expr:
+def _fuse(left_column: str, right_column: str, *, offset: float = 0.0) -> pl.Expr:
     left, right = pl.col(left_column), pl.col(right_column)
 
     return (
@@ -65,5 +63,4 @@ def _fuse(
         .when(left > 0)
         .then(left - offset / 2)
         .otherwise(right + offset / 2)
-        .alias(target_column)
     )
