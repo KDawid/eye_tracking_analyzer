@@ -45,12 +45,18 @@ def fuse_raw_data(df: pl.DataFrame, protocol=EyeFusionProtocol.Any) -> pl.DataFr
 
 def _get_offset(df: pl.DataFrame, left_column: str, right_column: str) -> float:
     left, right = pl.col(left_column), pl.col(right_column)
-    return df.filter((left > 0) & (right > 0)).select((left - right).mean()).item()
+    return (
+        df.filter(left.is_not_null() & right.is_not_null())
+        .select((left - right).mean())
+        .item()
+    )
 
 
 def _eye_valid(x_column: str, y_column: str, diameter_column: str) -> pl.Expr:
     return (
-        (pl.col(x_column) > 0) & (pl.col(y_column) > 0) & (pl.col(diameter_column) > 0)
+        pl.col(x_column).is_not_null()
+        & pl.col(y_column).is_not_null()
+        & pl.col(diameter_column).is_not_null()
     )
 
 
@@ -58,9 +64,9 @@ def _fuse(left_column: str, right_column: str, *, offset: float = 0.0) -> pl.Exp
     left, right = pl.col(left_column), pl.col(right_column)
 
     return (
-        pl.when((left > 0) & (right > 0))
+        pl.when(left.is_not_null() & right.is_not_null())
         .then((left + right) / 2)
-        .when(left > 0)
+        .when(left.is_not_null())
         .then(left - offset / 2)
         .otherwise(right + offset / 2)
     )

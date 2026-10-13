@@ -11,12 +11,12 @@ class FuseRawEyeDataTest(unittest.TestCase):
         df = pl.DataFrame(
             {
                 Column.Timestamp: [0, 10, 20, 30],
-                Column.LeftX: [100.0, 0.0, 0.0, 300.0],
-                Column.LeftY: [200.0, 0.0, 0.0, 400.0],
-                Column.RightX: [110.0, 150.0, 0.0, 0.0],
-                Column.RightY: [210.0, 250.0, 0.0, 0.0],
-                Column.LeftDiameter: [3.0, 0.0, 0.0, 3.0],
-                Column.RightDiameter: [3.2, 3.5, 0.0, 0.0],
+                Column.LeftX: [100.0, None, None, 300.0],
+                Column.LeftY: [200.0, None, None, 400.0],
+                Column.RightX: [110.0, 150.0, None, None],
+                Column.RightY: [210.0, 250.0, None, None],
+                Column.LeftDiameter: [3.0, None, None, 3.0],
+                Column.RightDiameter: [3.2, 3.5, None, None],
             }
         )
 
@@ -44,12 +44,12 @@ class FuseRawEyeDataTest(unittest.TestCase):
         df = pl.DataFrame(
             {
                 Column.Timestamp: [0, 10, 20, 30],
-                Column.LeftX: [100.0, 0.0, 0.0, 300.0],
-                Column.LeftY: [200.0, 0.0, 0.0, 400.0],
-                Column.RightX: [110.0, 150.0, 0.0, 0.0],
-                Column.RightY: [210.0, 250.0, 0.0, 0.0],
-                Column.LeftDiameter: [3.0, 0.0, 0.0, 3.0],
-                Column.RightDiameter: [3.2, 3.5, 0.0, 0.0],
+                Column.LeftX: [100.0, None, None, 300.0],
+                Column.LeftY: [200.0, None, None, 400.0],
+                Column.RightX: [110.0, 150.0, None, None],
+                Column.RightY: [210.0, 250.0, None, None],
+                Column.LeftDiameter: [3.0, None, None, 3.0],
+                Column.RightDiameter: [3.2, 3.5, None, None],
             }
         )
 
@@ -66,8 +66,8 @@ class FuseRawEyeDataTest(unittest.TestCase):
         df = pl.DataFrame(
             {
                 Column.Timestamp: [0, 10, 20],
-                Column.LeftX: [100.0, 0.0, 120.0],
-                Column.LeftY: [200.0, 0.0, 220.0],
+                Column.LeftX: [100.0, None, 120.0],
+                Column.LeftY: [200.0, None, 220.0],
                 Column.RightX: [110.0, 130.0, 130.0],
                 Column.RightY: [210.0, 230.0, 230.0],
                 Column.LeftDiameter: [3.0, 3.0, 3.0],

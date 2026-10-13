@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -5,6 +6,8 @@ import polars as pl
 
 from eye_tracking.columns import Column
 from eye_tracking.input_formats import TOBII, RecordingFormat
+
+_COORDINATE_COLUMNS = (Column.LeftX, Column.LeftY, Column.RightX, Column.RightY)
 
 
 def read_raw_data(
@@ -59,20 +62,23 @@ def read_demo_data(file_path: Path | str) -> pl.DataFrame:
         raise ValueError(f"Malformed rows: {errors[:10]} ({len(errors)} total)")
 
     df = pl.DataFrame(
-        rows, schema=[Column.LeftX, Column.LeftY, Column.Timestamp], orient="row"
+        rows, schema=[Column.EyeX, Column.EyeY, Column.Timestamp], orient="row"
     )
+    df = _normalize_coordinates(df, columns=(Column.EyeX, Column.EyeY))
     df = _normalize_timestamp(df, "ms")
     return df
 
 
-def _normalize_coordinates(df: pl.DataFrame) -> pl.DataFrame:
+def _normalize_coordinates(
+    df: pl.DataFrame, *, columns: Sequence[str] = _COORDINATE_COLUMNS
+) -> pl.DataFrame:
     return df.with_columns(
         [
             (
                 (pl.col(column) - pl.col(column).min())
                 / (pl.col(column).max() - pl.col(column).min())
             ).alias(column)
-            for column in _COORDINATE_COLUMNS
+            for column in columns
         ]
     )
 
@@ -101,7 +107,6 @@ _EYE_COLUMNS = {
     ),
 }
 
-_COORDINATE_COLUMNS = (Column.LeftX, Column.LeftY, Column.RightX, Column.RightY)
 _SCHEMA = {
     Column.Timestamp: pl.Float64,
     Column.LeftX: pl.Float64,
