@@ -39,10 +39,7 @@ TOBII = RecordingFormat(
         "L Mapped Diameter [mm]": Column.LeftDiameter,
         "R Mapped Diameter [mm]": Column.RightDiameter,
     },
-    validity=ValidityMapping(
-        left="L Validity",
-        right="R Validity",
-    ),
+    validity=ValidityMapping(left="L Validity", right="R Validity"),
     time_unit="us",
     normalize=True,
 )

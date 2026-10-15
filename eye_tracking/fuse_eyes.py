@@ -1,3 +1,4 @@
+import logging
 from enum import Enum, auto
 
 import polars as pl
@@ -17,56 +18,44 @@ class EyeFusionProtocol(Enum):
     Aligned = auto()
 
 
-def fuse_raw_data(df: pl.DataFrame, protocol=EyeFusionProtocol.Any) -> pl.DataFrame:
-    left_valid = _eye_valid(Column.LeftX, Column.LeftY, Column.LeftDiameter)
-    right_valid = _eye_valid(Column.RightX, Column.RightY, Column.RightDiameter)
+def fuse_raw_data(df: pl.DataFrame, protocol=EyeFusionProtocol.Any, *, drop_missing: bool = True) -> pl.DataFrame:
+    left_valid = _eye_valid(Column.LeftX, Column.LeftY)
+    right_valid = _eye_valid(Column.RightX, Column.RightY)
 
-    valid = (
-        left_valid & right_valid
-        if protocol == EyeFusionProtocol.Both
-        else left_valid | right_valid
-    )
-
+    allow_single_eye = protocol != EyeFusionProtocol.Both
+    offset_x = offset_y = 0.0
     if protocol == EyeFusionProtocol.Aligned:
-        x_offset = _get_offset(df, Column.LeftX, Column.RightX)
-        y_offset = _get_offset(df, Column.LeftY, Column.RightY)
-    else:
-        x_offset = y_offset = 0.0
+        both_valid = left_valid & right_valid
+        offset_x = _get_offset(df, Column.LeftX, Column.RightX, both_valid)
+        offset_y = _get_offset(df, Column.LeftY, Column.RightY, both_valid)
 
-    return df.filter(valid).select(
-        [
-            Column.Timestamp,
-            _fuse(Column.LeftX, Column.RightX, offset=x_offset).alias(Column.EyeX),
-            _fuse(Column.LeftY, Column.RightY, offset=y_offset).alias(Column.EyeY),
-            _fuse(Column.LeftDiameter, Column.RightDiameter).alias(Column.Diameter),
-        ]
+    fused = df.select(
+        Column.Timestamp,
+        _fuse(Column.LeftX, Column.RightX, left_valid, right_valid, allow_single_eye, offset_x).alias(Column.EyeX),
+        _fuse(Column.LeftY, Column.RightY, left_valid, right_valid, allow_single_eye, offset_y).alias(Column.EyeY),
+        pl.mean_horizontal(Column.LeftDiameter, Column.RightDiameter).alias(Column.Diameter),
     )
+    return fused.drop_nulls([Column.EyeX, Column.EyeY]) if drop_missing else fused
 
 
-def _get_offset(df: pl.DataFrame, left_column: str, right_column: str) -> float:
-    left, right = pl.col(left_column), pl.col(right_column)
-    return (
-        df.filter(left.is_not_null() & right.is_not_null())
-        .select((left - right).mean())
-        .item()
-    )
+def _get_offset(df: pl.DataFrame, left_column: str, right_column: str, both_valid: bool) -> float:
+    offset = df.filter(both_valid).select((pl.col(left_column) - pl.col(right_column)).mean()).item()
+    if offset is None:
+        logging.warning("No binocular samples found!")
+        return 0.0
+    return offset  # TODO: warn when there are no binocular samples
 
 
-def _eye_valid(x_column: str, y_column: str, diameter_column: str) -> pl.Expr:
-    return (
-        pl.col(x_column).is_not_null()
-        & pl.col(y_column).is_not_null()
-        & pl.col(diameter_column).is_not_null()
-    )
+def _eye_valid(x_column: str, y_column: str) -> pl.Expr:
+    return pl.col(x_column).is_not_null() & pl.col(y_column).is_not_null()
 
 
-def _fuse(left_column: str, right_column: str, *, offset: float = 0.0) -> pl.Expr:
-    left, right = pl.col(left_column), pl.col(right_column)
-
-    return (
-        pl.when(left.is_not_null() & right.is_not_null())
-        .then((left + right) / 2)
-        .when(left.is_not_null())
-        .then(left - offset / 2)
-        .otherwise(right + offset / 2)
-    )
+def _fuse(
+    left_col: str, right_col: str, left_valid: pl.Expr, right_valid: pl.Expr, allow_single_eye: bool, offset: float
+) -> pl.Expr:
+    left, right = pl.col(left_col), pl.col(right_col)
+    fused = pl.when(left_valid & right_valid).then((left + right) / 2)
+    if allow_single_eye:
+        fused = fused.when(left_valid).then(left - offset / 2)
+        fused = fused.when(right_valid).then(right + offset / 2)
+    return fused.otherwise(None)
