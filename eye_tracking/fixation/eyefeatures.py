@@ -1,5 +1,6 @@
 from typing import Literal, TypeAlias, TypedDict, get_args
 
+import pandas as pd
 import polars as pl
 from eyefeatures.preprocessing.fixation_extraction import IDT, IHMM, IVT
 
@@ -26,11 +27,11 @@ class _IHMMDistributionParams(TypedDict):
 
 _DistanceType: TypeAlias = Literal["euc", "manhattan", "chebyshev"]
 _DistributionType: TypeAlias = Literal["norm"]
-_DistributionParamType: TypeAlias = Literal["auto"] | _IHMMDistributionParams
+_DistributionParamType: TypeAlias = Literal["auto", "fit"] | _IHMMDistributionParams
 
 
 def ivt(
-    df: pl.DataFrame, *, velocity_threshold: float = 0.5, min_duration: float = 0.1, distance: _DistanceType = "euc"
+    df: pl.DataFrame, *, velocity_threshold: float = 0.001, min_duration: float = 100, distance: _DistanceType = "euc"
 ) -> pl.DataFrame:
     check_parameter_positive(velocity_threshold, "velocity_threshold")
     check_parameter_positive(min_duration, "min_duration")
@@ -49,14 +50,14 @@ def ivt(
     )
 
     result = detector.fit_transform(pdf)
-    return pl.from_pandas(result)
+    return _from_eyefeatures(result)
 
 
 def idt(
     df: pl.DataFrame,
     *,
-    min_duration: float = 0.1,
-    max_duration: float = 1.0,
+    min_duration: float = 100,
+    max_duration: float = 1000,
     max_dispersion: float = 0.05,
     distance: _DistanceType = "euc",
 ) -> pl.DataFrame:
@@ -77,7 +78,7 @@ def idt(
         distance=distance,
     )
     result = detector.fit_transform(pdf)
-    return pl.from_pandas(result)
+    return _from_eyefeatures(result)
 
 
 def ihmm(
@@ -98,6 +99,8 @@ def ihmm(
 
     if distribution_parameters == "auto":
         distribution_parameters = _DEFAULT_DISTRIBUTION_PARAMETERS
+    elif distribution_parameters == "fit":
+        distribution_parameters = _estimate_distribution_parameters(df)
 
     detector = IHMM(
         x=Column.EyeX,
@@ -110,7 +113,27 @@ def ihmm(
         distrib_params=distribution_parameters,  # type: ignore[arg-type]
     )
     result = detector.fit_transform(pdf)
-    return pl.from_pandas(result)
+    return _from_eyefeatures(result)
+
+
+def _from_eyefeatures(result: pd.DataFrame) -> pl.DataFrame:
+    return pl.from_pandas(result).rename({"start_time": Column.StartTimestamp, "end_time": Column.EndTimestamp})
+
+
+def _estimate_distribution_parameters(df: pl.DataFrame) -> _IHMMDistributionParams:
+    speeds = (
+        df.sort(Column.Timestamp)
+        .select(
+            (
+                (pl.col(Column.EyeX).diff() ** 2 + pl.col(Column.EyeY).diff() ** 2).sqrt()
+                / pl.col(Column.Timestamp).diff()
+            ).alias("speed")
+        )
+        .drop_nulls()["speed"]
+    )
+    fixation = max(speeds.quantile(0.5), 1e-9)
+    saccade = max(speeds.quantile(0.99), 1e-9)
+    return {"fixation": {"loc": fixation, "scale": fixation / 2}, "saccade": {"loc": saccade, "scale": saccade / 5}}
 
 
 # see fixation_extraction.py:430-449

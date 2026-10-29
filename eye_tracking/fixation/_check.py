@@ -61,7 +61,7 @@ def check_parameter_between(parameter: float, name: str, lower: float, upper: fl
 
 def check_distribution_parameters(params: object, name: str):
     if isinstance(params, str):
-        if params == "auto":
+        if params in ("auto", "fit"):
             return
         raise ValueError(f"'{name}' must be 'auto' or a dictionary.")
 

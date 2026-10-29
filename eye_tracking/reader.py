@@ -71,7 +71,7 @@ def _normalize_coordinates(df: pl.DataFrame, *, columns: Sequence[str] = _COORDI
 
 def _normalize_timestamp(df: pl.DataFrame, time_unit: Literal["s", "ms", "us", "ns"]) -> pl.DataFrame:
     return df.sort(Column.Timestamp).with_columns(
-        ((pl.col(Column.Timestamp) - pl.col(Column.Timestamp).min()).cast(pl.Float64) * _TO_SECONDS[time_unit]).alias(
+        ((pl.col(Column.Timestamp) - pl.col(Column.Timestamp).min()).cast(pl.Float64) * _TO_MS[time_unit]).alias(
             Column.Timestamp
         )
     )
@@ -92,4 +92,4 @@ _SCHEMA = {
     Column.RightDiameter: pl.Float64,
 }
 
-_TO_SECONDS = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "ns": 1e-9}
+_TO_MS = {"s": 1e3, "ms": 1.0, "us": 1e-3, "ns": 1e-6}

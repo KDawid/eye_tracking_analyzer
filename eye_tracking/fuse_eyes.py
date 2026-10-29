@@ -38,7 +38,7 @@ def fuse_raw_data(df: pl.DataFrame, protocol=EyeFusionProtocol.Any, *, drop_miss
     return fused.drop_nulls([Column.EyeX, Column.EyeY]) if drop_missing else fused
 
 
-def _get_offset(df: pl.DataFrame, left_column: str, right_column: str, both_valid: bool) -> float:
+def _get_offset(df: pl.DataFrame, left_column: str, right_column: str, both_valid: pl.Expr) -> float:
     offset = df.filter(both_valid).select((pl.col(left_column) - pl.col(right_column)).mean()).item()
     if offset is None:
         logging.warning("No binocular samples found!")
