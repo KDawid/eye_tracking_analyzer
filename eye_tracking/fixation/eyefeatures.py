@@ -2,6 +2,7 @@ from typing import Literal, TypeAlias, TypedDict, get_args
 
 import pandas as pd
 import polars as pl
+from eyefeatures.preprocessing.base import BaseFixationPreprocessor
 from eyefeatures.preprocessing.fixation_extraction import IDT, IHMM, IVT
 
 from eye_tracking.columns import Column
@@ -49,8 +50,8 @@ def ivt(
         distance=distance,
     )
 
-    result = detector.fit_transform(pdf)
-    return _from_eyefeatures(result)
+    result = _get_eyefeatures_fixation_result(detector, pdf)
+    return result
 
 
 def idt(
@@ -77,8 +78,8 @@ def idt(
         max_dispersion=max_dispersion,
         distance=distance,
     )
-    result = detector.fit_transform(pdf)
-    return _from_eyefeatures(result)
+    result = _get_eyefeatures_fixation_result(detector, pdf)
+    return result
 
 
 def ihmm(
@@ -112,7 +113,22 @@ def ihmm(
         sac_distrib=saccade_distribution,
         distrib_params=distribution_parameters,  # type: ignore[arg-type]
     )
-    result = detector.fit_transform(pdf)
+    result = _get_eyefeatures_fixation_result(detector, pdf)
+    return result
+
+
+def _get_eyefeatures_fixation_result(detector: BaseFixationPreprocessor, df: pd.DataFrame) -> pl.DataFrame:
+    try:
+        result = detector.fit_transform(df)
+    except RuntimeError as error:
+        if "Found only 0 fixations" in str(error):
+            return _empty_fixations()
+        raise
+    except IndexError as error:
+        # eyefeatures indexes an empty array when it finds no fixation (seen in I-VT and I-HMM)
+        if "out of bounds for axis 0 with size 0" in str(error):
+            return _empty_fixations()
+        raise
     return _from_eyefeatures(result)
 
 
@@ -131,9 +147,18 @@ def _estimate_distribution_parameters(df: pl.DataFrame) -> _IHMMDistributionPara
         )
         .drop_nulls()["speed"]
     )
-    fixation = max(speeds.quantile(0.5), 1e-9)
+    fixation: float = max(speeds.quantile(0.5), 1e-9)
     saccade = max(speeds.quantile(0.99), 1e-9)
     return {"fixation": {"loc": fixation, "scale": fixation / 2}, "saccade": {"loc": saccade, "scale": saccade / 5}}
+
+
+def _empty_fixations() -> pl.DataFrame:
+    return pl.DataFrame(
+        schema={
+            c: pl.Float64
+            for c in (Column.StartTimestamp, Column.EndTimestamp, Column.Duration, Column.EyeX, Column.EyeY)
+        }
+    )
 
 
 # see fixation_extraction.py:430-449

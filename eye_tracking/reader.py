@@ -28,9 +28,7 @@ def read_raw_data(file_path: Path | str, *, fmt: RecordingFormat = TOBII) -> pl.
         ).drop(list(validity_mapping.values()))
 
     df = _normalize_coordinates(df)
-    if fmt.normalize:
-        df = _normalize_timestamp(df, fmt.time_unit)
-
+    df = _timestamp_to_ms(df, fmt.time_unit, zero_based=fmt.normalize)
     return df
 
 
@@ -56,25 +54,29 @@ def read_demo_data(file_path: Path | str) -> pl.DataFrame:
 
     df = pl.DataFrame(rows, schema=[Column.EyeX, Column.EyeY, Column.Timestamp], orient="row")
     df = _normalize_coordinates(df, columns=(Column.EyeX, Column.EyeY))
-    df = _normalize_timestamp(df, "ms")
+    df = _timestamp_to_ms(df, "ms")
     return df
 
 
 def _normalize_coordinates(df: pl.DataFrame, *, columns: Sequence[str] = _COORDINATE_COLUMNS) -> pl.DataFrame:
     return df.with_columns(
         [
-            ((pl.col(column) - pl.col(column).min()) / (pl.col(column).max() - pl.col(column).min())).alias(column)
+            pl.when(pl.col(column).max() > pl.col(column).min())
+            .then((pl.col(column) - pl.col(column).min()) / (pl.col(column).max() - pl.col(column).min()))
+            .otherwise(pl.col(column) * 0.0)
+            .alias(column)
             for column in columns
         ]
     )
 
 
-def _normalize_timestamp(df: pl.DataFrame, time_unit: Literal["s", "ms", "us", "ns"]) -> pl.DataFrame:
-    return df.sort(Column.Timestamp).with_columns(
-        ((pl.col(Column.Timestamp) - pl.col(Column.Timestamp).min()).cast(pl.Float64) * _TO_MS[time_unit]).alias(
-            Column.Timestamp
-        )
-    )
+def _timestamp_to_ms(
+    df: pl.DataFrame, time_unit: Literal["s", "ms", "us", "ns"], *, zero_based: bool = True
+) -> pl.DataFrame:
+    timestamp = pl.col(Column.Timestamp).cast(pl.Float64)
+    if zero_based:
+        timestamp = timestamp - timestamp.min()
+    return df.sort(Column.Timestamp).with_columns((timestamp * _TO_MS[time_unit]).alias(Column.Timestamp))
 
 
 _EYE_COLUMNS = {
