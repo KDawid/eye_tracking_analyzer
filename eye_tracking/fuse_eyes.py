@@ -7,20 +7,36 @@ from eye_tracking.columns import Column
 
 
 class EyeFusionProtocol(Enum):
+    Left = "left"
+    Right = "right"
+
     # Keep if any eye data is valid; take mean if both are valid.
-    Any = auto()
+    Any = "any"
 
     # Keep only rows where both eyes have valid data; take the mean.
-    Both = auto()
+    Both = "both"
 
     # Take the mean if both eyes are valid. If only one eye is valid, estimate the missing eye using the average
     # left/right offset observed in rows where both are valid.
-    Aligned = auto()
+    Aligned = "aligned"
+
+    @property
+    def label(self) -> str:
+        labels = {
+            EyeFusionProtocol.Any: "Any (mean when both available)",
+            EyeFusionProtocol.Both: "Both (require both eyes)",
+            EyeFusionProtocol.Aligned: "Aligned (compensate for eye offset)",
+            EyeFusionProtocol.Left: "Left eye",
+            EyeFusionProtocol.Right: "Right eye",
+        }
+        return labels[self]
 
 
-def fuse_raw_data(df: pl.DataFrame, protocol=EyeFusionProtocol.Any, *, drop_missing: bool = True) -> pl.DataFrame:
-    left_valid = _eye_valid(Column.LeftX, Column.LeftY)
-    right_valid = _eye_valid(Column.RightX, Column.RightY)
+def fuse_raw_data(
+    df: pl.DataFrame, protocol: EyeFusionProtocol = EyeFusionProtocol.Any, *, drop_missing: bool = True
+) -> pl.DataFrame:
+    left_valid = _eye_valid(Column.LeftX, Column.LeftY) & pl.lit(protocol != EyeFusionProtocol.Right)
+    right_valid = _eye_valid(Column.RightX, Column.RightY) & pl.lit(protocol != EyeFusionProtocol.Left)
 
     allow_single_eye = protocol != EyeFusionProtocol.Both
     offset_x = offset_y = 0.0
@@ -33,7 +49,7 @@ def fuse_raw_data(df: pl.DataFrame, protocol=EyeFusionProtocol.Any, *, drop_miss
         Column.Timestamp,
         _fuse(Column.LeftX, Column.RightX, left_valid, right_valid, allow_single_eye, offset_x).alias(Column.EyeX),
         _fuse(Column.LeftY, Column.RightY, left_valid, right_valid, allow_single_eye, offset_y).alias(Column.EyeY),
-        pl.mean_horizontal(Column.LeftDiameter, Column.RightDiameter).alias(Column.Diameter),
+        _mean_diameter(protocol).alias(Column.Diameter),
     )
     return fused.drop_nulls([Column.EyeX, Column.EyeY]) if drop_missing else fused
 
@@ -59,3 +75,11 @@ def _fuse(
         fused = fused.when(left_valid).then(left - offset / 2)
         fused = fused.when(right_valid).then(right + offset / 2)
     return fused.otherwise(None)
+
+
+def _mean_diameter(protocol: EyeFusionProtocol) -> pl.Expr:
+    if protocol == EyeFusionProtocol.Left:
+        return pl.col(Column.LeftDiameter)
+    if protocol == EyeFusionProtocol.Right:
+        return pl.col(Column.RightDiameter)
+    return pl.mean_horizontal(pl.col(Column.LeftDiameter), pl.col(Column.RightDiameter))

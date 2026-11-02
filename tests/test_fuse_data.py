@@ -92,3 +92,53 @@ class FuseRawEyeDataTest(unittest.TestCase):
         self.assertAlmostEqual(fused[Column.Diameter][0], 3.0)
         self.assertAlmostEqual(fused[Column.Diameter][1], 3.0)
         self.assertAlmostEqual(fused[Column.Diameter][2], 3.0)
+
+    def test_fuse_only_left_drops_right_data(self):
+        df = pl.DataFrame(
+            {
+                Column.Timestamp: [0, 10, 20, 30],
+                Column.LeftX: [100.0, None, None, 300.0],
+                Column.LeftY: [200.0, None, None, 400.0],
+                Column.RightX: [110.0, 150.0, None, None],
+                Column.RightY: [210.0, 250.0, None, None],
+                Column.LeftDiameter: [3.0, None, None, 3.5],
+                Column.RightDiameter: [3.2, 3.5, None, None],
+            }
+        )
+
+        fused = fuse_raw_data(df, protocol=EyeFusionProtocol.Left)
+
+        self.assertEqual(fused[Column.Timestamp].to_list(), [0, 30])
+
+        self.assertAlmostEqual(fused[Column.EyeX][0], 100.0)
+        self.assertAlmostEqual(fused[Column.EyeY][0], 200.0)
+        self.assertAlmostEqual(fused[Column.Diameter][0], 3.0)
+
+        self.assertAlmostEqual(fused[Column.EyeX][1], 300.0)
+        self.assertAlmostEqual(fused[Column.EyeY][1], 400.0)
+        self.assertAlmostEqual(fused[Column.Diameter][1], 3.5)
+
+    def test_fuse_only_right_drops_left_data(self):
+        df = pl.DataFrame(
+            {
+                Column.Timestamp: [0, 10, 20, 30],
+                Column.LeftX: [100.0, None, None, 300.0],
+                Column.LeftY: [200.0, None, None, 400.0],
+                Column.RightX: [110.0, 150.0, None, None],
+                Column.RightY: [210.0, 250.0, None, None],
+                Column.LeftDiameter: [3.0, None, None, 3.5],
+                Column.RightDiameter: [3.2, 3.7, None, None],
+            }
+        )
+
+        fused = fuse_raw_data(df, protocol=EyeFusionProtocol.Right)
+
+        self.assertEqual(fused[Column.Timestamp].to_list(), [0, 10])
+
+        self.assertAlmostEqual(fused[Column.EyeX][0], 110.0)
+        self.assertAlmostEqual(fused[Column.EyeY][0], 210.0)
+        self.assertAlmostEqual(fused[Column.Diameter][0], 3.2)
+
+        self.assertAlmostEqual(fused[Column.EyeX][1], 150.0)
+        self.assertAlmostEqual(fused[Column.EyeY][1], 250.0)
+        self.assertAlmostEqual(fused[Column.Diameter][1], 3.7)
