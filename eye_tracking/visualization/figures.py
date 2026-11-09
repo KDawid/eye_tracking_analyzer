@@ -34,7 +34,14 @@ def fused_gaze_figure(fused: pl.DataFrame) -> go.Figure:
     return fig
 
 
-def fixation_figure(gaze: pl.DataFrame, fixations: pl.DataFrame, *, algorithm: str, parameters: dict) -> go.Figure:
+def fixation_figure(
+    gaze: pl.DataFrame,
+    fixations: pl.DataFrame,
+    *,
+    algorithm: str,
+    parameters: dict,
+    background_image: str | None = None,
+) -> go.Figure:
     fig = go.Figure()
 
     # Raw gaze trajectory
@@ -98,6 +105,7 @@ def fixation_figure(gaze: pl.DataFrame, fixations: pl.DataFrame, *, algorithm: s
         template="plotly_white",
     )
 
+    _add_background_image(fig, background_image)
     return fig
 
 
@@ -189,7 +197,7 @@ def pupil_diameter_figure(raw: pl.DataFrame, fused_data: dict[str, pl.DataFrame]
     return fig
 
 
-def gaze_trajectory_figure(fused: pl.DataFrame, method: str) -> go.Figure:
+def gaze_trajectory_figure(fused: pl.DataFrame, method: str, background_image: str | None = None) -> go.Figure:
     fig = go.Figure()
 
     fig.add_trace(
@@ -214,12 +222,36 @@ def gaze_trajectory_figure(fused: pl.DataFrame, method: str) -> go.Figure:
             "constrain": "domain",
         },
         width=800,
-        height=800,
+        height=600,
         hovermode="closest",
         template="plotly_white",
     )
 
+    _add_background_image(fig, background_image)
+
     return fig
+
+
+def _add_background_image(fig: go.Figure, background_image: str | None) -> None:
+    if background_image is None:
+        return
+
+    fig.add_layout_image(
+        dict(
+            source=background_image,
+            xref="x",
+            yref="y",
+            x=0,
+            y=1,
+            sizex=1,
+            sizey=1,
+            sizing="stretch",
+            opacity=0.5,
+            layer="below",
+            xanchor="left",
+            yanchor="top",
+        )
+    )
 
 
 def _get_fixation_statistics(fixations: pl.DataFrame) -> tuple[int, float, float]:
@@ -270,7 +302,7 @@ _COLORS = {
     "aligned": "mediumpurple",
     "left": "tomato",
     "right": "orange",
-    "gaze_trajectory": "silver",
-    "fixations": "tomato",
+    "gaze_trajectory": "black",  # "silver",
+    "fixations": "red",  # "tomato",
     "default": "darkslategray",
 }

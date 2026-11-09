@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 
 import polars as pl
@@ -15,12 +16,13 @@ from eye_tracking.visualization.figures import (
 )
 
 
-def create_app(raw: pl.DataFrame) -> Dash:
+def create_app(raw: pl.DataFrame, background_image: Path | None = None) -> Dash:
 
     app = Dash(__name__)
 
     raw_input = _is_raw_binocular_data(raw)
     fused_input = _is_fused_gaze(raw) and not raw_input
+    background_image_data = _get_background_image(background_image)
 
     fusion_cache = {}
 
@@ -78,6 +80,7 @@ def create_app(raw: pl.DataFrame) -> Dash:
                                         dcc.Graph(id="gaze-x-graph"),
                                         dcc.Graph(id="gaze-y-graph"),
                                         dcc.Graph(id="diameter-graph"),
+                                        _background_image_checkbox(background_image_data, "show-background-image-gaze"),
                                         dcc.Graph(id="trajectory-graph"),
                                     ]
                                 ),
@@ -103,6 +106,7 @@ def create_app(raw: pl.DataFrame) -> Dash:
                                         value="euc",
                                         clearable=False,
                                     ),
+                                    _background_image_checkbox(background_image_data, "show-background-image-ivt"),
                                     dcc.Graph(id="ivt-graph"),
                                 ]
                             )
@@ -127,6 +131,7 @@ def create_app(raw: pl.DataFrame) -> Dash:
                                         value="euc",
                                         clearable=False,
                                     ),
+                                    _background_image_checkbox(background_image_data, "show-background-image-idt"),
                                     dcc.Graph(id="idt-graph"),
                                 ]
                             )
@@ -152,6 +157,7 @@ def create_app(raw: pl.DataFrame) -> Dash:
                                         value="auto",
                                         clearable=False,
                                     ),
+                                    _background_image_checkbox(background_image_data, "show-background-image-ihmm"),
                                     dcc.Graph(id="ihmm-graph"),
                                 ]
                             )
@@ -173,16 +179,19 @@ def create_app(raw: pl.DataFrame) -> Dash:
         Output("diameter-graph", "figure"),
         Output("trajectory-graph", "figure"),
         Input("fusion-method", "value"),
+        Input("show-background-image-gaze", "value"),
     )
-    def update_gaze_graphs(method):
+    def update_gaze_graphs(method, show_background):
         all_fused = get_all_cached_gaze()
         selected_fused = get_cached_gaze(method, drop_missing=False)
+
+        image = background_image_data if "show" in (show_background or []) else None
 
         return (
             gaze_x_figure(raw, all_fused, selected_method=method),
             gaze_y_figure(raw, all_fused, selected_method=method),
             pupil_diameter_figure(raw, all_fused, selected_method=method),
-            gaze_trajectory_figure(selected_fused, method),
+            gaze_trajectory_figure(selected_fused, method, background_image=image),
         )
 
     # --------------------------------------------------
@@ -195,9 +204,12 @@ def create_app(raw: pl.DataFrame) -> Dash:
         Input("ivt-threshold", "value"),
         Input("ivt-duration", "value"),
         Input("ivt-distance", "value"),
+        Input("show-background-image-ivt", "value"),
     )
-    def update_ivt(method, threshold, duration, distance):
+    def update_ivt(method, threshold, duration, distance, show_background):
         gaze = get_cached_gaze(method)
+
+        image = background_image_data if "show" in (show_background or []) else None
 
         fixations = ivt(gaze, velocity_threshold=threshold, min_duration=duration, distance=distance)
 
@@ -206,6 +218,7 @@ def create_app(raw: pl.DataFrame) -> Dash:
             fixations,
             algorithm="I-VT",
             parameters={"threshold": threshold, "duration": duration, "distance": distance},
+            background_image=image,
         )
 
     # --------------------------------------------------
@@ -219,12 +232,17 @@ def create_app(raw: pl.DataFrame) -> Dash:
         Input("idt-max-duration", "value"),
         Input("idt-dispersion", "value"),
         Input("idt-distance", "value"),
+        Input("show-background-image-idt", "value"),
     )
-    def update_idt(method, min_duration, max_duration, dispersion, distance):
+    def update_idt(method, min_duration, max_duration, dispersion, distance, show_background):
         gaze = get_cached_gaze(method)
 
+        image = background_image_data if "show" in (show_background or []) else None
+
         if max_duration <= min_duration:
-            return fixation_figure(gaze, pl.DataFrame(), algorithm="I-DT (invalid parameters)", parameters={})
+            return fixation_figure(
+                gaze, pl.DataFrame(), algorithm="I-DT (invalid parameters)", parameters={}, background_image=image
+            )
 
         fixations = idt(
             gaze, min_duration=min_duration, max_duration=max_duration, max_dispersion=dispersion, distance=distance
@@ -240,6 +258,7 @@ def create_app(raw: pl.DataFrame) -> Dash:
                 "dispersion": dispersion,
                 "distance": distance,
             },
+            background_image=image,
         )
 
     # --------------------------------------------------
@@ -252,9 +271,12 @@ def create_app(raw: pl.DataFrame) -> Dash:
         Input("ihmm-fix2sac", "value"),
         Input("ihmm-sac2fix", "value"),
         Input("ihmm-params", "value"),
+        Input("show-background-image-ihmm", "value"),
     )
-    def update_ihmm(method, fix2sac, sac2fix, params):
+    def update_ihmm(method, fix2sac, sac2fix, params, show_background):
         gaze = get_cached_gaze(method)
+
+        image = background_image_data if "show" in (show_background or []) else None
 
         fixations = ihmm(
             gaze,
@@ -272,9 +294,19 @@ def create_app(raw: pl.DataFrame) -> Dash:
                 "saccade_to_fixation_probability": sac2fix,
                 "distribution_parameters": params,
             },
+            background_image=image,
         )
 
     return app
+
+
+def _background_image_checkbox(background_image_data: str | None, component_id: str):
+    return dcc.Checklist(
+        id=component_id,
+        options=[{"label": " Show background image", "value": "show"}],
+        value=[],
+        style={"display": "block" if background_image_data else "none", "margin": "10px 0"},
+    )
 
 
 def _is_fused_gaze(df: pl.DataFrame) -> bool:
@@ -301,16 +333,34 @@ def _get_gaze_data(raw: pl.DataFrame, method: str | EyeFusionProtocol, *, drop_m
     raise ValueError("Input must contain binocular raw data or already-fused gaze data.")
 
 
+def _get_background_image(image_path: Path | None) -> str | None:
+    if image_path is None:
+        return None
+
+    image_path = Path(image_path)
+
+    if not image_path.is_file():
+        raise FileNotFoundError(f"Background image not found: {image_path}")
+
+    if image_path.suffix.lower() != ".png":
+        raise ValueError("Background image must be a PNG file.")
+
+    encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
 if __name__ == "__main__":
     from eye_tracking.input_formats import MATLAB, SIMPLEGAZETRACKER, TOBII
     from eye_tracking.reader import read_demo_data, read_matlab_data, read_raw_data
 
     # raw = read_demo_data("../../notebooks/data/demo_data.txt")
     # raw = read_raw_data(Path("../../notebooks/simplegazetracker_dummy.csv"), fmt=SIMPLEGAZETRACKER)
-    raw = read_raw_data(Path("../../notebooks/data/1_rawdata.csv"), fmt=TOBII).slice(3200, 300)
+    # raw = read_raw_data(Path("../../notebooks/data/1_rawdata.csv"), fmt=TOBII).slice(3200, 300)
     # raw = read_matlab_data(Path("../../local_notes/UH47_img_Europe_labelled_MN.mat"), fmt=MATLAB)
     raw = read_matlab_data(Path("../../local_notes/UH29_img_Europe_labelled_FIX_MN.mat"), fmt=MATLAB)
     # raw = read_matlab_data(Path("../../local_notes/UH29_img_Europe_labelled_RA.mat"), fmt=MATLAB)
 
-    app = create_app(raw)
+    background_image = Path("../../local_notes/Europe1024x768.png")
+
+    app = create_app(raw, background_image)
     app.run(debug=True)
