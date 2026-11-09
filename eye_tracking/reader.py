@@ -1,16 +1,15 @@
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal
 
 import polars as pl
 
 from eye_tracking.columns import Column
-from eye_tracking.input_formats import TOBII, RecordingFormat
+from eye_tracking.input_formats import TOBII, CsvFormat, MatlabFormat, TimeUnit
 
 _COORDINATE_COLUMNS = (Column.LeftX, Column.LeftY, Column.RightX, Column.RightY)
 
 
-def read_raw_data(file_path: Path | str, *, fmt: RecordingFormat = TOBII) -> pl.DataFrame:
+def read_raw_data(file_path: Path, *, fmt: CsvFormat = TOBII) -> pl.DataFrame:
     mapping = fmt.columns
     df = pl.read_csv(
         file_path,
@@ -32,7 +31,7 @@ def read_raw_data(file_path: Path | str, *, fmt: RecordingFormat = TOBII) -> pl.
     return df
 
 
-def read_demo_data(file_path: Path | str) -> pl.DataFrame:
+def read_demo_data(file_path: Path) -> pl.DataFrame:
     rows, errors = [], []
 
     with open(file_path, encoding="utf-8") as f:
@@ -58,6 +57,29 @@ def read_demo_data(file_path: Path | str) -> pl.DataFrame:
     return df
 
 
+def read_matlab_data(file_path: Path, fmt: MatlabFormat, *, drop_missing: bool = True) -> pl.DataFrame:
+    from scipy.io import loadmat  # only needed for .mat files
+
+    matrix = loadmat(file_path, simplify_cells=True)[fmt.variable][fmt.field_name]
+    df = pl.DataFrame(matrix, schema=list(fmt.columns), orient="row")
+
+    df = df.with_columns(
+        pl.when(pl.col(Column.Validity) == 1).then(pl.col(column)).otherwise(None).alias(column)
+        for column in (Column.EyeX, Column.EyeY, Column.LeftDiameter, Column.RightDiameter)
+    ).select(
+        Column.Timestamp,
+        Column.EyeX,
+        Column.EyeY,
+        pl.mean_horizontal(Column.LeftDiameter, Column.RightDiameter).alias(Column.Diameter),
+    )
+
+    if drop_missing:  # same default as fuse_raw_data
+        df = df.drop_nulls([Column.EyeX, Column.EyeY])
+
+    df = _normalize_coordinates(df, columns=(Column.EyeX, Column.EyeY))
+    return _timestamp_to_ms(df, fmt.time_unit, zero_based=fmt.normalize)
+
+
 def _normalize_coordinates(df: pl.DataFrame, *, columns: Sequence[str] = _COORDINATE_COLUMNS) -> pl.DataFrame:
     return df.with_columns(
         [
@@ -70,9 +92,7 @@ def _normalize_coordinates(df: pl.DataFrame, *, columns: Sequence[str] = _COORDI
     )
 
 
-def _timestamp_to_ms(
-    df: pl.DataFrame, time_unit: Literal["s", "ms", "us", "ns"], *, zero_based: bool = True
-) -> pl.DataFrame:
+def _timestamp_to_ms(df: pl.DataFrame, time_unit: TimeUnit, *, zero_based: bool = True) -> pl.DataFrame:
     timestamp = pl.col(Column.Timestamp).cast(pl.Float64)
     if zero_based:
         timestamp = timestamp - timestamp.min()

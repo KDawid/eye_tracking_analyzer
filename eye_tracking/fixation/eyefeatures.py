@@ -21,14 +21,14 @@ class _NormalParams(TypedDict):
     scale: float
 
 
-class _IHMMDistributionParams(TypedDict):
+class IHMMDistributionParams(TypedDict):
     fixation: _NormalParams
     saccade: _NormalParams
 
 
 _DistanceType: TypeAlias = Literal["euc", "manhattan", "chebyshev"]
 _DistributionType: TypeAlias = Literal["norm"]
-_DistributionParamType: TypeAlias = Literal["auto", "fit"] | _IHMMDistributionParams
+_IHMMDistributionParamType: TypeAlias = Literal["auto", "fit"] | IHMMDistributionParams
 
 
 def ivt(
@@ -89,7 +89,7 @@ def ihmm(
     saccade_to_fixation_probability: float = 0.05,
     fixation_distribution: _DistributionType = "norm",
     saccade_distribution: _DistributionType = "norm",
-    distribution_parameters: _DistributionParamType = "auto",
+    distribution_parameters: _IHMMDistributionParamType = "auto",
 ) -> pl.DataFrame:
     check_parameter_between(fixation_to_saccade_probability, "fixation_to_saccade_probability", 0.0, 1.0)
     check_parameter_between(saccade_to_fixation_probability, "saccade_to_fixation_probability", 0.0, 1.0)
@@ -136,7 +136,7 @@ def _from_eyefeatures(result: pd.DataFrame) -> pl.DataFrame:
     return pl.from_pandas(result).rename({"start_time": Column.StartTimestamp, "end_time": Column.EndTimestamp})
 
 
-def _estimate_distribution_parameters(df: pl.DataFrame) -> _IHMMDistributionParams:
+def _estimate_distribution_parameters(df: pl.DataFrame) -> IHMMDistributionParams:
     speeds = (
         df.sort(Column.Timestamp)
         .select(
@@ -162,7 +162,7 @@ def _empty_fixations() -> pl.DataFrame:
 
 
 # see fixation_extraction.py:430-449
-_DEFAULT_DISTRIBUTION_PARAMETERS: _IHMMDistributionParams = {
+_DEFAULT_DISTRIBUTION_PARAMETERS: IHMMDistributionParams = {
     "fixation": {"loc": 0.002, "scale": 0.001},
     "saccade": {"loc": 0.03, "scale": 0.005},
 }

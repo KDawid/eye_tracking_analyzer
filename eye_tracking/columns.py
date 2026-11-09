@@ -11,6 +11,7 @@ class Column:
     RightY = "right_y"
     LeftDiameter = "left_diameter"
     RightDiameter = "right_diameter"
+    Validity = "validity"
 
     # Refined data
     EyeX = "eye_x"

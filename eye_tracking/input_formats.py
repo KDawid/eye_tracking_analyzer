@@ -3,6 +3,8 @@ from typing import Literal
 
 from eye_tracking.columns import Column
 
+TimeUnit = Literal["s", "ms", "us", "ns"]
+
 
 @dataclass(frozen=True)
 class ValidityMapping:
@@ -10,17 +12,13 @@ class ValidityMapping:
     right: str | None = None
 
     def as_dict(self) -> dict[str, str]:
-        return {
-            eye: column
-            for eye, column in (("left", self.left), ("right", self.right))
-            if column is not None
-        }
+        return {eye: column for eye, column in (("left", self.left), ("right", self.right)) if column is not None}
 
 
 @dataclass(frozen=True)
-class RecordingFormat:
+class CsvFormat:
     columns: dict[str, str]
-    time_unit: Literal["s", "ms", "us", "ns"] = "us"
+    time_unit: TimeUnit = "us"
     validity: ValidityMapping = field(default_factory=ValidityMapping)
     normalize: bool = False
 
@@ -29,7 +27,16 @@ class RecordingFormat:
         return list(dict.fromkeys([*self.columns, *self.validity.as_dict().values()]))
 
 
-TOBII = RecordingFormat(
+@dataclass(frozen=True)
+class MatlabFormat:
+    columns: tuple[str, ...]
+    variable: str = "ETdata"
+    field_name: str = "pos"
+    time_unit: TimeUnit = "us"
+    normalize: bool = True
+
+
+TOBII = CsvFormat(
     columns={
         "Time": Column.Timestamp,
         "L POR X [px]": Column.LeftX,
@@ -44,7 +51,7 @@ TOBII = RecordingFormat(
     normalize=True,
 )
 
-SIMPLEGAZETRACKER = RecordingFormat(
+SIMPLEGAZETRACKER = CsvFormat(
     columns={
         "Time": Column.Timestamp,
         "Lx": Column.LeftX,
@@ -56,4 +63,9 @@ SIMPLEGAZETRACKER = RecordingFormat(
     },
     time_unit="ms",
     normalize=True,
+)
+
+
+MATLAB = MatlabFormat(
+    columns=(Column.Timestamp, Column.LeftDiameter, Column.RightDiameter, Column.EyeX, Column.EyeY, Column.Validity)
 )
