@@ -73,11 +73,13 @@ def read_matlab_data(file_path: Path, fmt: MatlabFormat, *, drop_missing: bool =
         pl.mean_horizontal(Column.LeftDiameter, Column.RightDiameter).alias(Column.Diameter),
     )
 
-    if drop_missing:  # same default as fuse_raw_data
+    df = _timestamp_to_ms(df, fmt.time_unit, zero_based=fmt.normalize)
+
+    if drop_missing:
         df = df.drop_nulls([Column.EyeX, Column.EyeY])
 
     df = _normalize_coordinates(df, columns=(Column.EyeX, Column.EyeY))
-    return _timestamp_to_ms(df, fmt.time_unit, zero_based=fmt.normalize)
+    return df
 
 
 def _normalize_coordinates(df: pl.DataFrame, *, columns: Sequence[str] = _COORDINATE_COLUMNS) -> pl.DataFrame:
