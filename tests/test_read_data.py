@@ -60,6 +60,10 @@ DEFAULT_SAMPLES = {
 }
 
 
+LOST = 0.0
+FIXATION, BLINK = 1, 5
+
+
 def csv_recording(
     fmt: CsvFormat = TOBII, *, samples: dict | None = None, left_validity: list[int] | None = None
 ) -> pl.DataFrame:
@@ -110,7 +114,7 @@ class FormatTests(unittest.TestCase):
 
     def test_read_columns_list_mapped_columns_then_validity_columns_without_duplicates(self):
         fmt = CsvFormat(
-            columns={"Time": Column.Timestamp, "LV": Column.Validity}, validity=ValidityMapping(left="LV", right="RV")
+            columns={"Time": Column.Timestamp, "LV": Column.LeftX}, validity=ValidityMapping(left="LV", right="RV")
         )
         self.assertEqual(fmt.read_columns, ["Time", "LV", "RV"])
 
@@ -124,7 +128,7 @@ class FormatTests(unittest.TestCase):
             Column.EyeY,
             Column.LeftDiameter,
             Column.RightDiameter,
-            Column.Validity,
+            Column.Label,
         }
         self.assertLessEqual(required_by_matlab_reader, set(MATLAB.columns))
 
@@ -270,12 +274,12 @@ class ReadDemoDataTests(FileTestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("scipy"), "scipy is not installed")
 class ReadMatlabDataTests(FileTestCase):
-    # [timestamp (us), left pupil, right pupil, x, y, validity]; the second sample is invalid with an outlier x
+    # [timestamp (us), left pupil, right pupil, x, y, label]; the tracker loses the eye on the second sample
     ROWS = (
-        [5_000_000, 3.0, 3.2, 100.0, 10.0, 1],
-        [5_008_000, 3.0, 3.2, 999.0, 20.0, 0],
-        [5_016_000, 3.0, 3.2, 300.0, 30.0, 1],
-        [5_024_000, 3.0, 3.2, 500.0, 50.0, 1],
+        [5_000_000, 3.0, 3.2, 100.0, 10.0, FIXATION],
+        [5_008_000, LOST, LOST, LOST, LOST, BLINK],
+        [5_016_000, 3.0, 3.2, 300.0, 30.0, FIXATION],
+        [5_024_000, 3.0, 3.2, 500.0, 50.0, FIXATION],
     )
 
     def write_mat(self, rows: Sequence[list[float]], *, variable: str = "ETdata", field: str = "pos") -> Path:
@@ -285,31 +289,19 @@ class ReadMatlabDataTests(FileTestCase):
         savemat(path, {variable: {field: np.array(rows, dtype=float)}})
         return path
 
-    def test_returns_the_fused_table_with_invalid_samples_nulled_and_normalised_without_them(self):
+    def test_returns_the_fused_table_with_missing_samples_as_null_and_ignored_by_the_scale(self):
         result = read_matlab_data(self.write_mat(self.ROWS), MATLAB, drop_missing=False)
 
-        self.assertEqual(result.columns, [Column.Timestamp, Column.EyeX, Column.EyeY, Column.Diameter])
+        self.assertEqual(result.columns, [Column.Timestamp, Column.EyeX, Column.EyeY, Column.Diameter, Column.Label])
         self.assertColumn(result, Column.Timestamp, [0.0, 8.0, 16.0, 24.0])
-        self.assertColumn(result, Column.EyeX, [0.0, None, 0.5, 1.0])  # the 999 outlier does not stretch the scale
+        self.assertColumn(result, Column.EyeX, [0.0, None, 0.5, 1.0])
         self.assertColumn(result, Column.EyeY, [0.0, None, 0.5, 1.0])
-        self.assertColumn(result, Column.Diameter, [3.1, None, 3.1, 3.1])  # mean of both pupils, nulled with the gaze
+        self.assertColumn(result, Column.Diameter, [3.1, None, 3.1, 3.1])  # mean of both pupils
 
-    def test_drops_invalid_samples_by_default(self):
+    def test_drops_missing_samples_by_default(self):
         result = read_matlab_data(self.write_mat(self.ROWS), MATLAB)
 
         self.assertColumn(result, Column.Timestamp, [0.0, 16.0, 24.0])
-
-    def test_time_origin_is_the_first_recorded_sample_even_when_it_is_invalid(self):
-        # Same as the CSV readers, where invalid samples keep their row: dropping must not shift t = 0
-        rows = [
-            [5_000_000, 3.0, 3.2, 100.0, 10.0, 0],
-            [5_008_000, 3.0, 3.2, 200.0, 20.0, 1],
-            [5_016_000, 3.0, 3.2, 300.0, 30.0, 1],
-        ]
-
-        result = read_matlab_data(self.write_mat(rows), MATLAB)
-
-        self.assertColumn(result, Column.Timestamp, [8.0, 16.0])
 
     def test_normalize_setting_controls_the_time_origin(self):
         result = read_matlab_data(self.write_mat(self.ROWS), replace(MATLAB, normalize=False))
@@ -319,7 +311,7 @@ class ReadMatlabDataTests(FileTestCase):
     def test_uses_the_column_order_variable_and_field_names_of_the_format(self):
         fmt = MatlabFormat(
             columns=(
-                Column.Validity,
+                Column.Label,
                 Column.Timestamp,
                 Column.EyeX,
                 Column.EyeY,
@@ -337,6 +329,44 @@ class ReadMatlabDataTests(FileTestCase):
         self.assertColumn(result, Column.EyeX, [0.0, 1.0])
         self.assertColumn(result, Column.EyeY, [0.0, 1.0])
         self.assertColumn(result, Column.Diameter, [3.0, 3.0])
+
+    def test_time_origin_is_the_first_recorded_sample_even_when_it_is_lost(self):
+        rows = [
+            [5_000_000, LOST, LOST, LOST, LOST, BLINK],
+            [5_008_000, 3.0, 3.2, 200.0, 20.0, FIXATION],
+            [5_016_000, 3.0, 3.2, 300.0, 30.0, FIXATION],
+        ]
+
+        result = read_matlab_data(self.write_mat(rows), MATLAB)
+
+        self.assertColumn(result, Column.Timestamp, [8.0, 16.0])
+
+    def test_lost_samples_become_null_and_do_not_stretch_the_scale(self):
+        result = read_matlab_data(self.write_mat(self.ROWS), MATLAB, drop_missing=False)
+
+        self.assertEqual(result.columns, [Column.Timestamp, Column.EyeX, Column.EyeY, Column.Diameter, Column.Label])
+        self.assertColumn(result, Column.Timestamp, [0.0, 8.0, 16.0, 24.0])
+        self.assertColumn(result, Column.EyeX, [0.0, None, 0.5, 1.0])
+        self.assertColumn(result, Column.EyeY, [0.0, None, 0.5, 1.0])
+        self.assertColumn(result, Column.Diameter, [3.1, None, 3.1, 3.1])
+
+    def test_validity_comes_from_the_data_not_from_the_label(self):
+        rows = [
+            [5_000_000, 3.0, 3.2, 100.0, 10.0, BLINK],  # annotated as blink, but the tracker still reports gaze
+            [5_008_000, LOST, LOST, LOST, LOST, FIXATION],  # annotated as fixation, but the tracker lost the eye
+            [5_016_000, 3.0, 3.2, 300.0, 30.0, FIXATION],
+        ]
+
+        result = read_matlab_data(self.write_mat(rows), MATLAB, drop_missing=False)
+
+        self.assertColumn(result, Column.EyeX, [0.0, None, 1.0])
+        self.assertColumn(result, Column.Label, [BLINK, FIXATION, FIXATION])  # carried through unchanged
+
+    def test_format_without_a_lost_sample_value_keeps_zeros_as_data(self):
+        result = read_matlab_data(self.write_mat(self.ROWS), replace(MATLAB, lost_sample_value=None))
+
+        self.assertEqual(result.height, len(self.ROWS))
+        self.assertEqual(result[Column.EyeX].null_count(), 0)
 
 
 if __name__ == "__main__":

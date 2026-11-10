@@ -25,3 +25,4 @@ class Column:
 
     # Other columns
     SampleCount = "sample_count"
+    Label = "label"

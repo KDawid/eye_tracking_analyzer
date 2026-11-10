@@ -1,10 +1,31 @@
 from collections.abc import Sequence
+from enum import Enum
 from pathlib import Path
 
 import polars as pl
 
 from eye_tracking.columns import Column
 from eye_tracking.input_formats import TOBII, CsvFormat, MatlabFormat, TimeUnit
+
+
+# TODO change to strEnum after upgraded to python>=3.11
+class Label(str, Enum):
+    Fixation = "fixation"
+    Saccade = "saccade"
+    PostSaccadicOscillation = "post_saccadic_oscillation"
+    SmoothPursuit = "smooth_pursuit"
+    Blink = "blink"
+    Undefined = "undefined"
+
+
+MATLAB_LABELS = {
+    1: Label.Fixation,
+    2: Label.Saccade,
+    3: Label.PostSaccadicOscillation,
+    4: Label.SmoothPursuit,
+    5: Label.Blink,
+    6: Label.Undefined,
+}
 
 _COORDINATE_COLUMNS = (Column.LeftX, Column.LeftY, Column.RightX, Column.RightY)
 
@@ -58,19 +79,21 @@ def read_demo_data(file_path: Path) -> pl.DataFrame:
 
 
 def read_matlab_data(file_path: Path, fmt: MatlabFormat, *, drop_missing: bool = True) -> pl.DataFrame:
-    from scipy.io import loadmat  # only needed for .mat files
+    from scipy.io import loadmat
 
     matrix = loadmat(file_path, simplify_cells=True)[fmt.variable][fmt.field_name]
     df = pl.DataFrame(matrix, schema=list(fmt.columns), orient="row")
 
-    df = df.with_columns(
-        pl.when(pl.col(Column.Validity) == 1).then(pl.col(column)).otherwise(None).alias(column)
-        for column in (Column.EyeX, Column.EyeY, Column.LeftDiameter, Column.RightDiameter)
-    ).select(
+    if fmt.lost_sample_value is not None:
+        df = _null_lost_samples(df, fmt.lost_sample_value)
+
+    ground_truth = [pl.col(Column.Label).cast(pl.Int64)] if Column.Label in df.columns else []
+    df = df.select(
         Column.Timestamp,
         Column.EyeX,
         Column.EyeY,
         pl.mean_horizontal(Column.LeftDiameter, Column.RightDiameter).alias(Column.Diameter),
+        *ground_truth,
     )
 
     df = _timestamp_to_ms(df, fmt.time_unit, zero_based=fmt.normalize)
@@ -80,6 +103,16 @@ def read_matlab_data(file_path: Path, fmt: MatlabFormat, *, drop_missing: bool =
 
     df = _normalize_coordinates(df, columns=(Column.EyeX, Column.EyeY))
     return df
+
+
+def _null_lost_samples(df: pl.DataFrame, lost_value: float) -> pl.DataFrame:
+    gaze_lost = (pl.col(Column.EyeX) == lost_value) & (pl.col(Column.EyeY) == lost_value)
+    return df.with_columns(
+        pl.when(~gaze_lost).then(pl.col(column)).otherwise(None).alias(column) for column in (Column.EyeX, Column.EyeY)
+    ).with_columns(
+        pl.when(pl.col(column) != lost_value).then(pl.col(column)).otherwise(None).alias(column)
+        for column in (Column.LeftDiameter, Column.RightDiameter)
+    )
 
 
 def _normalize_coordinates(df: pl.DataFrame, *, columns: Sequence[str] = _COORDINATE_COLUMNS) -> pl.DataFrame:

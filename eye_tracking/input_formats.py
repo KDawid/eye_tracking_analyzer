@@ -34,6 +34,7 @@ class MatlabFormat:
     field_name: str = "pos"
     time_unit: TimeUnit = "us"
     normalize: bool = True
+    lost_sample_value: float | None = 0.0
 
 
 TOBII = CsvFormat(
@@ -67,5 +68,5 @@ SIMPLEGAZETRACKER = CsvFormat(
 
 
 MATLAB = MatlabFormat(
-    columns=(Column.Timestamp, Column.LeftDiameter, Column.RightDiameter, Column.EyeX, Column.EyeY, Column.Validity)
+    columns=(Column.Timestamp, Column.LeftDiameter, Column.RightDiameter, Column.EyeX, Column.EyeY, Column.Label)
 )
